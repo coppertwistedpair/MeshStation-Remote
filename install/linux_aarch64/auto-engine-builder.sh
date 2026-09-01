@@ -434,24 +434,21 @@ echo "--- Cleanup ---"
 safe_cleanup
 strip_binaries
 
-keep_abs="$(mktemp)"
-build_keep_abs_file "$keep_abs"
-auto_add_so_versions "$keep_abs"
-
-lib_prefixes="$(mktemp)"
-lib_keep_prefixes "$lib_prefixes"
-
-echo "Pruning ENV/lib .so files..."
-prune_env_lib_sos "$lib_prefixes"
-
-echo "Pruning Python .so..."
-prune_python_sos "$keep_abs"
-
-echo "Re-testing after pruning..."
-test_env
+# The .so allowlist-based pruning below (KEEP_FILES) assumes pinned package
+# versions. Building from unpinned linuxenv.yml means conda-forge can hand
+# back different resolved versions on every rebuild, and each version drift
+# breaks the allowlist match for some library (seen with boost, then uhd),
+# silently deleting a .so the runtime actually needs -> ImportError at
+# startup. Until this env is built from a proper pinned lock file again,
+# skip the aggressive .so pruning; the safe/strip cleanup above still saves
+# meaningful space without risking a broken runtime.
+echo "Skipping aggressive .so pruning (unpinned deps make the allowlist unreliable)."
 
 echo "Cleaning micromamba cache..."
 clean_micromamba_cache
+
+echo "Final validation..."
+test_env
 
 echo "Done. Runtime environment ready at: $ENV_PATH"
 
