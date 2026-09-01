@@ -1,0 +1,4 @@
+# Only needed if NOT using the bundled conda/micromamba runtime (see install/).
+# gnuradio, gr-lora_sdr and gr-osmosdr are not pip-installable; they must come
+# from the conda env built via install/<platform>/auto-engine-builder.sh.
+pyzmq==27.1.0

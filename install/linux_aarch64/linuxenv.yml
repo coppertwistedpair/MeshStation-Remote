@@ -1,0 +1,17 @@
+# This file exists only to create an env different from the one created with the automatic script, 
+# a complete env but compatible with the program, to create it run this command after downloading micromamba in the same folder:
+# ./micromamba create -f linuxenv.yml -p ./runtime
+# Working with the environment created in this way, breaks the optimization and reduction of the env itself which instead works well creating it from the automatic script (for any unmanaged updates)
+name: runtime
+channels:
+  - ryanvolz
+  - conda-forge
+dependencies:
+  - python=3.10
+  - nomkl
+  - numpy
+  - gnuradio-osmosdr
+  - gnuradio-lora_sdr
+  - rtl-sdr
+  - libusb
+  - pyzmq
