@@ -43,35 +43,46 @@ the RTL-SDR plugged in.
 
 ## Run
 
+Use `run.sh` at the repo root — it finds the right runtime for your CPU
+(aarch64 or x86_64) automatically, so you never have to remember the
+`install/<platform>/runtime/bin/python` path:
+
+```bash
+./run.sh
+```
+
 First run with no arguments launches the setup wizard automatically — pick
 your Meshtastic region (e.g. `US`, `EU_868`) and modem preset (e.g.
 `LONG_FAST`), and it computes and saves the correct center frequency,
 bandwidth, spreading factor and sample rate (same formula the Meshtastic
-firmware uses, including the frequency-slot hash):
-
-```bash
-cd install/linux_aarch64
-./runtime/bin/python ../../meshrx.py
-```
+firmware uses, including the frequency-slot hash).
 
 Answers are saved to `meshrx_config.json` at the repo root; every later run
 reuses them automatically. Re-run the wizard any time with `--setup`, or
-skip it non-interactively by passing `--region`/`--preset` directly:
+skip it non-interactively by passing `--region`/`--preset` directly —
+anything after `run.sh` is passed straight through to `meshrx.py`:
 
 ```bash
-./runtime/bin/python ../../meshrx.py --region US --preset LONG_FAST --port 5555
+./run.sh --region US --preset LONG_FAST --port 5555
 ```
 
 You can still bypass all of this and set raw radio parameters yourself:
 
 ```bash
-./runtime/bin/python ../../meshrx.py \
-  --center-freq 869525000 --sf 11 --lora-bw 250000 --gain 30 --port 5555
+./run.sh --center-freq 869525000 --sf 11 --lora-bw 250000 --gain 30 --port 5555
 ```
 
 Precedence per run: explicit `--center-freq`/`--sf`/`--lora-bw` > computed
 from `--region`/`--preset` > saved `meshrx_config.json` > wizard (if nothing
 saved yet).
+
+To keep it running after you close your SSH session, run it inside `tmux`:
+
+```bash
+tmux new -s meshrx
+./run.sh
+# Ctrl+B then D to detach; reattach later with: tmux attach -t meshrx
+```
 
 ## Connect from MeshStation
 
