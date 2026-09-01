@@ -313,17 +313,44 @@ in_keep() {
   grep -Fxq "$file" "$keepfile"
 }
 
+lib_keep_prefixes() {
+  # KEEP_FILES pins exact versioned filenames (e.g. libboost_thread.so.1.88.0),
+  # but building from linuxenv.yml (unpinned) can resolve a different version
+  # (e.g. 1.90.0), so an exact-name match silently prunes the real file. Match
+  # by library name prefix instead ("libboost_thread.so") so any resolved
+  # version survives.
+  local out="$1"
+  : > "$out"
+  for rel in "${KEEP_FILES[@]}"; do
+    [[ "$rel" == lib/*.so* ]] || continue
+    local base prefix
+    base="$(basename "$rel")"
+    prefix="${base%%.so*}.so"
+    printf '%s\n' "$prefix" >> "$out"
+  done
+  sort -u "$out" -o "$out"
+}
+
 prune_env_lib_sos() {
-  local keepfile="$1"
+  local prefixfile="$1"
   [[ -d "${ENV_PATH}/lib" ]] || return
 
   while IFS= read -r f; do
     # Skip symlinks
     [[ -L "$f" ]] && continue
+    local b="$(basename "$f")"
     # zmq needs libzmq/libsodium; keep unconditionally (pyzmq for ZMQ PUB output)
-    [[ "$(basename "$f")" == libzmq.so* || "$(basename "$f")" == libsodium.so* ]] && continue
+    [[ "$b" == libzmq.so* || "$b" == libsodium.so* ]] && continue
 
-    if ! in_keep "$f" "$keepfile"; then
+    local keep=0
+    while IFS= read -r p; do
+      if [[ "$b" == "$p" || "$b" == "$p".* ]]; then
+        keep=1
+        break
+      fi
+    done < "$prefixfile"
+
+    if [[ "$keep" -eq 0 ]]; then
       rm -f "$f" || true
     fi
   done < <(find "${ENV_PATH}/lib" -maxdepth 1 -type f -name "*.so*" 2>/dev/null)
@@ -411,8 +438,11 @@ keep_abs="$(mktemp)"
 build_keep_abs_file "$keep_abs"
 auto_add_so_versions "$keep_abs"
 
+lib_prefixes="$(mktemp)"
+lib_keep_prefixes "$lib_prefixes"
+
 echo "Pruning ENV/lib .so files..."
-prune_env_lib_sos "$keep_abs"
+prune_env_lib_sos "$lib_prefixes"
 
 echo "Pruning Python .so..."
 prune_python_sos "$keep_abs"
