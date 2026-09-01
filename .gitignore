@@ -1,0 +1,5 @@
+meshrx_config.json
+install/*/runtime/
+install/*/micromamba
+__pycache__/
+*.pyc

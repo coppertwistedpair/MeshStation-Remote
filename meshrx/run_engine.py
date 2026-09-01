@@ -4,6 +4,8 @@ import signal
 import time
 
 from .pdu_zmq_sink import PDUZMQSink
+from .setup_wizard import CONFIG_PATH, load_config, run_wizard
+from .meshtastic_presets import calc_freq
 
 # Flowgraph (same demod chain / 0x03 framing as MeshStation's internal engine)
 from .flowgraphs.rx_lora_base_engine import build_top_block
@@ -14,11 +16,18 @@ def main(argv=None) -> int:
     ap.add_argument("--bind-host", default="0.0.0.0", help="Bind address for ZMQ PUB output")
     ap.add_argument("--port", type=int, default=5555, help="Bind port for ZMQ PUB output")
 
-    # Radio parameters — same defaults as MeshStation's internal engine
-    ap.add_argument("--center-freq", type=int, default=869_525_000, help="Center frequency (Hz)")
-    ap.add_argument("--samp-rate", type=int, default=1_000_000, help="Sample rate (sps)")
-    ap.add_argument("--lora-bw", type=int, default=250_000, help="LoRa bandwidth (Hz)")
-    ap.add_argument("--sf", type=int, default=9, help="Spreading factor")
+    ap.add_argument("--setup", action="store_true", default=False, help="Run the region/preset setup wizard and exit")
+
+    # Meshtastic-aware shortcuts: computes center-freq/sf/bw for you.
+    ap.add_argument("--region", default=None, help="Meshtastic region key (e.g. US, EU_868) — computes radio params")
+    ap.add_argument("--preset", default=None, help="Meshtastic modem preset key (e.g. LONG_FAST)")
+    ap.add_argument("--channel-name", default=None, help="Channel name used for frequency hashing (default: preset's default channel name)")
+
+    # Raw radio parameters — override --region/--preset/saved config when given
+    ap.add_argument("--center-freq", type=int, default=None, help="Center frequency (Hz)")
+    ap.add_argument("--samp-rate", type=int, default=None, help="Sample rate (sps)")
+    ap.add_argument("--lora-bw", type=int, default=None, help="LoRa bandwidth (Hz)")
+    ap.add_argument("--sf", type=int, default=None, help="Spreading factor")
 
     ap.add_argument("--gain", type=float, default=30.0, help="RF gain")
     ap.add_argument("--ppm", type=float, default=0.0, help="Frequency correction (ppm)")
@@ -34,6 +43,41 @@ def main(argv=None) -> int:
 
     args = ap.parse_args(argv)
 
+    if args.setup:
+        run_wizard()
+        return 0
+
+    center_freq, samp_rate, lora_bw, sf = args.center_freq, args.samp_rate, args.lora_bw, args.sf
+
+    if args.region or args.preset:
+        if not (args.region and args.preset):
+            raise SystemExit("--region and --preset must be given together")
+        result = calc_freq(args.region, args.preset, frequency_slot=0, channel_name=args.channel_name)
+        if not result["valid"]:
+            raise SystemExit(f"[MESHRX] {result['error']}")
+        center_freq = center_freq if center_freq is not None else result["center_freq_hz"]
+        lora_bw = lora_bw if lora_bw is not None else int(result["bw_khz"] * 1000)
+        sf = sf if sf is not None else result["sf"]
+        print(f"[MESHRX] {args.region}/{args.preset} -> center_freq={center_freq} bw={lora_bw} sf={sf} "
+              f"(slot {result['slot_used']}/{result['num_slots']}, channel={result['channel_name']})", flush=True)
+    elif center_freq is None:
+        config = load_config()
+        if config is None:
+            print("[MESHRX] No saved config and no radio parameters given — running first-time setup.\n", flush=True)
+            config = run_wizard()
+        center_freq = config["center_freq_hz"]
+        lora_bw = lora_bw if lora_bw is not None else config["lora_bw_hz"]
+        sf = sf if sf is not None else config["sf"]
+        samp_rate = samp_rate if samp_rate is not None else config["samp_rate"]
+        print(f"[MESHRX] Using saved config ({CONFIG_PATH}): "
+              f"{config['region']}/{config['preset']} channel={config['channel_name']}", flush=True)
+
+    # Fill in anything still unset with the historical defaults.
+    center_freq = center_freq if center_freq is not None else 869_525_000
+    lora_bw = lora_bw if lora_bw is not None else 250_000
+    sf = sf if sf is not None else 9
+    samp_rate = samp_rate if samp_rate is not None else 1_000_000
+
     q = queue.Queue(maxsize=4000)
 
     extra_demod_configs = None
@@ -45,10 +89,10 @@ def main(argv=None) -> int:
             print(f"[MESHRX] Failed to parse extra-demod-configs: {e}", flush=True)
 
     tb = build_top_block(
-        center_freq=args.center_freq,
-        samp_rate=args.samp_rate,
-        lora_bw=args.lora_bw,
-        sf=args.sf,
+        center_freq=center_freq,
+        samp_rate=samp_rate,
+        lora_bw=lora_bw,
+        sf=sf,
         gain=args.gain,
         ppm=args.ppm,
         if_gain=args.if_gain,
@@ -90,7 +134,7 @@ def main(argv=None) -> int:
     signal.signal(signal.SIGTERM, _sig)
 
     print(f"[MESHRX] ZMQ PUB bound on tcp://{args.bind_host}:{args.port}", flush=True)
-    print(f"[MESHRX] center_freq={args.center_freq} sf={args.sf} bw={args.lora_bw} samp_rate={args.samp_rate}", flush=True)
+    print(f"[MESHRX] center_freq={center_freq} sf={sf} bw={lora_bw} samp_rate={samp_rate}", flush=True)
 
     tb.start()
     try:

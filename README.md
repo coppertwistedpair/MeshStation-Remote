@@ -13,6 +13,11 @@ engine.
   -> frame aggregator that emits `0x03`-type frames with payload + SNR/RSSI).
 - `meshrx/pdu_zmq_sink.py` — replaces MeshStation's internal TCP sink; binds
   a ZMQ PUB socket and publishes each frame.
+- `meshrx/meshtastic_presets.py` — Meshtastic's region/modem-preset tables
+  and its exact frequency-hash formula, copied from MeshStation so MeshRX
+  computes the same center frequency the firmware would.
+- `meshrx/setup_wizard.py` — first-time setup: pick your region + modem
+  preset interactively, get the correct radio parameters, no manual lookup.
 - `meshrx/run_engine.py` — CLI entry point that wires it all together.
 
 MeshStation decrypts the Meshtastic payload itself once it receives a frame,
@@ -38,20 +43,35 @@ the RTL-SDR plugged in.
 
 ## Run
 
+First run with no arguments launches the setup wizard automatically — pick
+your Meshtastic region (e.g. `US`, `EU_868`) and modem preset (e.g.
+`LONG_FAST`), and it computes and saves the correct center frequency,
+bandwidth, spreading factor and sample rate (same formula the Meshtastic
+firmware uses, including the frequency-slot hash):
+
 ```bash
 cd install/linux_aarch64
-./runtime/bin/python ../../meshrx.py \
-  --center-freq 869525000 \
-  --sf 9 \
-  --lora-bw 250000 \
-  --gain 30 \
-  --bind-host 0.0.0.0 \
-  --port 5555
+./runtime/bin/python ../../meshrx.py
 ```
 
-Use the Meshtastic frequency/SF/BW for your region and channel preset (e.g.
-`869525000` for EU868 LongFast, `906875000` for US915 LongFast — match
-whatever MeshStation's internal engine uses for the same preset).
+Answers are saved to `meshrx_config.json` at the repo root; every later run
+reuses them automatically. Re-run the wizard any time with `--setup`, or
+skip it non-interactively by passing `--region`/`--preset` directly:
+
+```bash
+./runtime/bin/python ../../meshrx.py --region US --preset LONG_FAST --port 5555
+```
+
+You can still bypass all of this and set raw radio parameters yourself:
+
+```bash
+./runtime/bin/python ../../meshrx.py \
+  --center-freq 869525000 --sf 11 --lora-bw 250000 --gain 30 --port 5555
+```
+
+Precedence per run: explicit `--center-freq`/`--sf`/`--lora-bw` > computed
+from `--region`/`--preset` > saved `meshrx_config.json` > wizard (if nothing
+saved yet).
 
 ## Connect from MeshStation
 
@@ -71,12 +91,16 @@ would have produced locally.
 
 | Flag | Default | Meaning |
 |---|---|---|
+| `--setup` | — | Run the region/preset wizard and exit |
+| `--region` | — | Meshtastic region key, e.g. `US`, `EU_868` (needs `--preset`) |
+| `--preset` | — | Meshtastic modem preset key, e.g. `LONG_FAST` (needs `--region`) |
+| `--channel-name` | preset default | Channel name used for the frequency-slot hash |
 | `--bind-host` | `0.0.0.0` | ZMQ PUB bind address |
 | `--port` | `5555` | ZMQ PUB bind port |
-| `--center-freq` | `869525000` | Center frequency (Hz) |
-| `--samp-rate` | `1000000` | RTL-SDR sample rate (sps) |
-| `--lora-bw` | `250000` | LoRa bandwidth (Hz) |
-| `--sf` | `9` | Spreading factor |
+| `--center-freq` | computed/saved | Center frequency (Hz) — overrides region/preset/config |
+| `--samp-rate` | computed/saved | RTL-SDR sample rate (sps) |
+| `--lora-bw` | computed/saved | LoRa bandwidth (Hz) |
+| `--sf` | computed/saved | Spreading factor |
 | `--gain` | `30.0` | RF gain |
 | `--ppm` | `0.0` | Frequency correction (ppm) |
 | `--if-gain` / `--bb-gain` | `20` / `20` | RTL-SDR IF/baseband gain |
